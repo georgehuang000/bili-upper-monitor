@@ -3,7 +3,7 @@
 
 - Collects the last 24h of new videos (title + desc) and dynamics text per UP.
 - Builds a grouped Chinese prompt, truncated to ~8000 chars.
-- Calls LLM_MODEL (fallback LLM_MODEL_FALLBACK) through the OpenAI SDK, whose
+- Calls LLM_MODEL through the OpenAI SDK, whose
   key/base_url/model can be changed at runtime from the web UI (see llm_settings).
 - Persists the markdown result into the summaries table.
 """
@@ -94,19 +94,15 @@ def _build_prompt(period_label: str):
 
 
 def _call_llm(system: str, user: str):
-    """Try primary model, then fallback; each with retries. Returns (content, model).
+    """用配置的主模型生成，失败按可重试性退避重试。Returns (content, model).
 
-    认证/权限/地址类错误（401/403/404/400/402）不做重试：换模型也一样失败，
-    重试只会白等 6 次。真正的临时故障（超时/限流/5xx）才退避重试。
+    只用一个模型（不再有兜底模型）：认证/权限/地址类错误（401/403/404/400/402）
+    不做重试，重试只会白等；真正的临时故障（超时/限流/5xx）才退避重试。
     """
     client = _client_instance()
 
-    models = []
-    for m in (config.LLM_MODEL, config.LLM_MODEL_FALLBACK):
-        m = (m or "").strip()
-        if m and m not in models:
-            models.append(m)
-    if not models:
+    model = (config.LLM_MODEL or "").strip()
+    if not model:
         raise RuntimeError("未配置 LLM 模型：请在网页顶栏「模型设置」里填写")
 
     kwargs = {}
@@ -116,31 +112,35 @@ def _call_llm(system: str, user: str):
 
     last_err = "未知错误"
     last_status = None
-    for model in models:
-        for attempt in range(3):  # 1 try + 2 retries
-            try:
-                resp = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                    timeout=120,
-                    **kwargs,
-                )
-                content = resp.choices[0].message.content
-                if content and content.strip():
-                    return content, model
-                last_err = "模型返回了空内容"
-            except Exception as ex:
-                hint, status = llm_client.describe_error(ex)
-                last_err = f"{hint}（模型={model}，{type(ex).__name__}）"
-                last_status = status
-                if status in _FATAL_STATUS:
-                    break
-                time.sleep(1.5 * (attempt + 1))
-        if last_status in _FATAL_STATUS:
-            break  # 换个模型也是同样的错，别浪费时间
+    for attempt in range(3):  # 1 try + 2 retries
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                timeout=120,
+                **kwargs,
+            )
+            content = resp.choices[0].message.content
+            if content and content.strip():
+                return content, model
+            # 思考模式开满时，推理 token 可能把输出预算吃光而正文为空，
+            # 这种"空内容"重试也一样，直接报出来更省事
+            finish = getattr(resp.choices[0], "finish_reason", "") or "未知"
+            last_err = (
+                f"模型返回了空内容（finish_reason={finish}）——"
+                "若开启了思考模式，可尝试调低或关闭"
+            )
+            break
+        except Exception as ex:
+            hint, status = llm_client.describe_error(ex)
+            last_err = f"{hint}（模型={model}，{type(ex).__name__}）"
+            last_status = status
+            if status in _FATAL_STATUS:
+                break
+            time.sleep(1.5 * (attempt + 1))
     raise RuntimeError(f"LLM 调用失败：{last_err}")
 
 

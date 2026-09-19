@@ -112,7 +112,8 @@ export function getLlmSettings() {
 
 /**
  * POST /api/llm/settings 保存模型配置(写回 .env 并立刻生效,无需重启)
- * payload: {provider?, api_key?, base_url?, model?, fallback?, vision_model?, thinking?}
+ * payload: {provider?, api_key?, base_url?, model?, vision_model?, thinking?,
+ *           vision_enabled?, vision_max_images?}
  * api_key 留空或传掩码 = 不修改现有密钥
  */
 export function saveLlmSettings(payload) {

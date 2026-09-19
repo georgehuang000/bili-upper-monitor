@@ -26,7 +26,6 @@ export default function ModelSettingsDialog({ open, onClose, onSaved }) {
   const [showKey, setShowKey] = useState(false)
   const [baseUrl, setBaseUrl] = useState('')
   const [model, setModel] = useState('')
-  const [fallback, setFallback] = useState('')
   const [visionModel, setVisionModel] = useState('')
   const [thinking, setThinking] = useState('disabled')
   const [visionEnabled, setVisionEnabled] = useState(true)
@@ -59,7 +58,6 @@ export default function ModelSettingsDialog({ open, onClose, onSaved }) {
         setProvider(s.provider || 'deepseek')
         setBaseUrl(s.base_url || '')
         setModel(s.model || '')
-        setFallback(s.fallback || '')
         setVisionModel(s.vision_model || '')
         setThinking(s.thinking || 'disabled')
         setVisionEnabled(s.vision_enabled !== false)
@@ -95,7 +93,6 @@ export default function ModelSettingsDialog({ open, onClose, onSaved }) {
     if (!p) return
     if (p.base_url) setBaseUrl(p.base_url)
     if (p.model) setModel(p.model)
-    setFallback(p.fallback || '')
     setVisionModel(p.model || '')
     setResult(null)
   }
@@ -105,7 +102,6 @@ export default function ModelSettingsDialog({ open, onClose, onSaved }) {
     api_key: apiKey.trim(),
     base_url: baseUrl.trim(),
     model: model.trim(),
-    fallback: fallback.trim(),
     vision_model: visionModel.trim(),
     thinking,
     vision_enabled: visionEnabled,
@@ -330,39 +326,23 @@ export default function ModelSettingsDialog({ open, onClose, onSaved }) {
                 ) : null}
               </div>
 
-              {/* 兜底模型 + 图片识别模型 */}
-              <div className="field-grid">
-                <div className="field">
-                  <label className="field-label" htmlFor="llm-fallback">
-                    兜底模型
-                  </label>
-                  <input
-                    id="llm-fallback"
-                    className="input"
-                    value={fallback}
-                    onChange={(e) => setFallback(e.target.value)}
-                    placeholder="deepseek-v4-pro"
-                    spellCheck="false"
-                  />
-                  <div className="field-hint">主模型不可用时自动改用它</div>
-                </div>
-                <div className="field">
-                  <label className="field-label" htmlFor="llm-vision-model">
-                    图片识别模型
-                  </label>
-                  <input
-                    id="llm-vision-model"
-                    className="input"
-                    value={visionModel}
-                    onChange={(e) => setVisionModel(e.target.value)}
-                    placeholder="deepseek-flash"
-                    spellCheck="false"
-                  />
-                  <div className="field-hint">
-                    {visionLikelyBad
-                      ? '⚠ v4-pro 不支持图片识别，图片任务会失败'
-                      : 'DeepSeek 目前只有 deepseek-flash 支持读图'}
-                  </div>
+              {/* 图片识别模型 */}
+              <div className="field">
+                <label className="field-label" htmlFor="llm-vision-model">
+                  图片识别模型
+                </label>
+                <input
+                  id="llm-vision-model"
+                  className="input"
+                  value={visionModel}
+                  onChange={(e) => setVisionModel(e.target.value)}
+                  placeholder="deepseek-flash"
+                  spellCheck="false"
+                />
+                <div className="field-hint">
+                  {visionLikelyBad
+                    ? '⚠ v4-pro 不支持图片识别，图片任务会失败'
+                    : 'DeepSeek 目前只有 deepseek-flash 支持读图'}
                 </div>
               </div>
 
@@ -389,6 +369,10 @@ export default function ModelSettingsDialog({ open, onClose, onSaved }) {
                 <div className="field-hint">
                   DeepSeek 默认开启思考且强度为 high，对"把字幕压成摘要"又慢又贵。
                   日常摘要建议关闭；想让日报多做推演再调高。
+                  <br />
+                  注意：<b>图片识别固定不使用思考模式</b>（实测同一张真实封面：
+                  关闭思考 1.9 秒返回 195 字且数字全抄对；开到最高要 69 秒、输出
+                  token 多 140 倍，而且正文还会被推理吃光变成空）。
                 </div>
               </div>
 

@@ -24,9 +24,8 @@ PROVIDERS = {
         "label": "DeepSeek 官方",
         "base_url": "https://api.deepseek.com/v1",
         "model": "deepseek-flash",
-        "fallback": "deepseek-v4-pro",
         "vision": True,
-        "note": "deepseek-flash = V4.1-Flash，1M 上下文，支持图片识别；v4-pro 推理更强但不支持图片。",
+        "note": "deepseek-flash = V4.1-Flash，1M 上下文，支持图片识别。",
         "key_url": "https://platform.deepseek.com/api_keys",
     },
     "custom": {
@@ -34,7 +33,6 @@ PROVIDERS = {
         "label": "自定义（OpenAI 兼容）",
         "base_url": "",
         "model": "",
-        "fallback": "",
         "vision": None,
         "note": "任何兼容 OpenAI /chat/completions 的服务都可填（硅基流动、百炼、Ollama 等）。",
         "key_url": "",
@@ -48,7 +46,6 @@ WRITABLE_KEYS = (
     "LLM_API_KEY",
     "LLM_BASE_URL",
     "LLM_MODEL",
-    "LLM_MODEL_FALLBACK",
     "VISION_MODEL",
     "LLM_THINKING",
     "VISION_ENABLED",
@@ -124,7 +121,6 @@ def current() -> dict:
         "provider": detect_provider(config.LLM_BASE_URL),
         "base_url": config.LLM_BASE_URL,
         "model": config.LLM_MODEL,
-        "fallback": config.LLM_MODEL_FALLBACK,
         "vision_model": config.VISION_MODEL,
         "thinking": config.LLM_THINKING,
         "vision_enabled": bool(config.VISION_ENABLED),
@@ -179,7 +175,6 @@ def _validate(payload: dict) -> dict:
 
     for field, env_key, label in (
         ("model", "LLM_MODEL", "模型名"),
-        ("fallback", "LLM_MODEL_FALLBACK", "兜底模型名"),
         ("vision_model", "VISION_MODEL", "图片识别模型"),
     ):
         if field in payload:
@@ -235,8 +230,6 @@ def save(payload: dict) -> dict:
             payload["base_url"] = preset["base_url"]
         if not (payload.get("model") or "").strip():
             payload["model"] = preset["model"]
-        if not (payload.get("fallback") or "").strip():
-            payload["fallback"] = preset["fallback"]
 
     updates = _validate(payload)
     if not updates:

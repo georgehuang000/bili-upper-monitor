@@ -61,7 +61,6 @@ def _llm_snapshot() -> dict:
         "provider": cur["provider"],
         "base_url": cur["base_url"],
         "model": cur["model"],
-        "fallback": cur["fallback"],
         "vision_model": cur["vision_model"],
         "thinking": cur["thinking"],
         "vision_enabled": cur["vision_enabled"],

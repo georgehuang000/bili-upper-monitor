@@ -125,18 +125,32 @@ def describe(urls, kind: str = "cover", context: str = "", timeout: int = None) 
         resp = client.chat.completions.create(
             model=config.VISION_MODEL,
             messages=[{"role": "user", "content": content}],
-            max_tokens=400,
+            # 800 是防爆护栏：实测关闭思考时一次读图只用 128 个输出 token
+            max_tokens=800,
             timeout=timeout or config.VISION_TIMEOUT,
-            **llm_client.thinking_kwargs(),
+            # 读图**固定关闭思考模式**，不受 LLM_THINKING 影响。
+            # 实测（同一张真实封面，deepseek-flash）：
+            #   thinking=disabled + 400 tokens -> 1.9s / 128 tokens / 195 字，数字全抄对
+            #   thinking=max      + 400 tokens -> 正文为空（finish_reason=length，
+            #                                     推理 token 把输出预算吃光）
+            #   thinking=max      + 不限制     -> 69s / 18006 tokens / 正文反而更短
+            # 读图是"把画面文字抄下来"的机械任务，开思考只会更慢更贵还可能拿不到结果。
+            **llm_client.thinking_kwargs("disabled"),
         )
     except Exception as e:
         hint, status = llm_client.describe_error(e)
         raise RuntimeError(f"图片识别调用失败（HTTP {status}）：{hint}") from e
 
     try:
-        text = (resp.choices[0].message.content or "").strip()
+        choice = resp.choices[0]
+        text = (choice.message.content or "").strip()
+        finish = getattr(choice, "finish_reason", "") or "未知"
+        reason_len = len(getattr(choice.message, "reasoning_content", "") or "")
     except (AttributeError, IndexError, TypeError):
-        text = ""
+        text, finish, reason_len = "", "未知", 0
     if not text:
-        raise RuntimeError("图片识别返回空内容")
+        # 把 finish_reason 带出来：上次"空内容"就是靠它定位到推理吃光预算的
+        raise RuntimeError(
+            f"图片识别返回空内容（finish_reason={finish}，推理 {reason_len} 字）"
+        )
     return text

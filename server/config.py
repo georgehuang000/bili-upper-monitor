@@ -59,8 +59,7 @@ LLM_BASE_URL = _get("LLM_BASE_URL", "https://api.deepseek.com/v1")
 # deepseek-flash = DeepSeek-V4.1-Flash：1M 上下文、384K 输出、支持图片识别、最便宜。
 # 注意 `deepseek-v4-flash` 是已退役的旧名（仍被接受，但由 V4.1-Flash 承接）。
 LLM_MODEL = _get("LLM_MODEL", "deepseek-flash")
-# 兜底模型：v4-pro 推理更强但**不支持 vision**，所以图片任务只会用 VISION_MODEL。
-LLM_MODEL_FALLBACK = _get("LLM_MODEL_FALLBACK", "deepseek-v4-pro")
+# 不做兜底模型：只用上面这一个（LLM_MODEL_FALLBACK 已废弃；.env 里残留的该键会被忽略）
 # 图片识别用的模型。默认跟随 LLM_MODEL（在 DeepSeek 官方就是 deepseek-flash）。
 VISION_MODEL = _get("VISION_MODEL") or LLM_MODEL
 # 思考模式：disabled（默认）/ low / high / max

@@ -134,8 +134,7 @@ sqlite3 server/data.db 'select count(*) from videos;'   # 数据量
 | `LLM_API_KEY` | DeepSeek 官方 API Key（**保密，勿提交/打印**）；网页端保存时写这个键 |
 | `deepseek_key` | 等价的手动键名（优先级低于 `LLM_API_KEY`），不习惯用上面那个就写这个 |
 | `LLM_BASE_URL` | LLM 接口地址，默认 `https://api.deepseek.com/v1` |
-| `LLM_MODEL` | 主模型，默认 `deepseek-flash`（= DeepSeek-V4.1-Flash，支持图片识别） |
-| `LLM_MODEL_FALLBACK` | 回退模型，默认 `deepseek-v4-pro`（注意它**不支持**图片识别） |
+| `LLM_MODEL` | 主模型，默认 `deepseek-flash`（= DeepSeek-V4.1-Flash，支持图片识别）；**不做兜底模型** |
 | `VISION_MODEL` | 图片识别用模型，留空则跟随 `LLM_MODEL` |
 | `LLM_THINKING` | 思考模式：`disabled`（默认）/ `low` / `high` / `max` |
 | `VISION_ENABLED` | 是否识别封面/配图，默认 `true`（需服务商支持读图） |
