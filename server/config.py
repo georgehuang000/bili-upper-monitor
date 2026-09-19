@@ -128,8 +128,11 @@ DYN_SLEEP_MIN = _get_int("DYN_SLEEP_MIN", 10)
 DYN_SLEEP_MAX = _get_int("DYN_SLEEP_MAX", 20)
 
 # --- summarizer ---
-SUMMARY_INPUT_MAX_CHARS = _get_int("SUMMARY_INPUT_MAX_CHARS", 16000)
+SUMMARY_INPUT_MAX_CHARS = _get_int("SUMMARY_INPUT_MAX_CHARS", 200000)
 SUMMARY_LOOKBACK_HOURS = 24
+# 视频没有 AI 摘要时（例如刚抓到、字幕还没抓完），用字幕开头一段兜底，
+# 避免该视频只剩一个标题进日报
+SUMMARY_SUBTITLE_FALLBACK_CHARS = _get_int("SUMMARY_SUBTITLE_FALLBACK_CHARS", 1200)
 # 逐视频摘要：送入 LLM 的字幕截断长度（8万字符≈4.5小时口播，v4-flash 128k上下文可容纳）
 SUMMARY_VIDEO_INPUT_MAX_CHARS = _get_int("SUMMARY_VIDEO_INPUT_MAX_CHARS", 80000)
 # 字幕入库全文上限（20万字符≈8小时直播回放）

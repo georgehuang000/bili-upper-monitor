@@ -572,7 +572,7 @@ def recent_videos_since(uid: str, since_ts: int) -> list:
         return [
             {"bvid": r.bvid, "title": r.title, "desc": r.desc,
              "summary": r.summary, "pub_ts": r.pub_ts, "url": r.url,
-             "image_desc": r.image_desc}
+             "subtitle": r.subtitle, "image_desc": r.image_desc}
             for r in rows
         ]
 

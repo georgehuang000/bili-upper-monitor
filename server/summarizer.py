@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """Daily investment-content report generation via the DeepSeek LLM gateway.
 
-- Collects the last 24h of new videos (title + desc) and dynamics text per UP.
-- Builds a grouped Chinese prompt, truncated to ~8000 chars.
+- Collects the last 24h of new videos (title/desc/AI-summary/subtitle-excerpt) and
+  dynamics text per UP, plus the image-recognition text for covers and dynamic pics.
+- Builds a Chinese prompt that asks for cross-source analysis (consensus / conflict /
+  hard-data table), not a per-UP recap; truncated at SUMMARY_INPUT_MAX_CHARS.
 - Calls LLM_MODEL through the OpenAI SDK, whose
   key/base_url/model can be changed at runtime from the web UI (see llm_settings).
 - Persists the markdown result into the summaries table.
@@ -59,7 +61,14 @@ def _build_prompt(period_label: str):
                 d = (v.get("desc") or "").strip()
                 d = f"，简介：{d}" if d else ""
                 s = (v.get("summary") or "").strip()
-                s = f"\n  AI摘要：{s}" if s else ""
+                if s:
+                    s = f"\n  AI摘要：{s}"
+                else:
+                    # 没有摘要（刚抓到 / 字幕还没抓完）时用字幕开头兜底，
+                    # 否则该视频只剩标题，观点等于没进日报
+                    sub = (v.get("subtitle") or "").strip().replace("\n", " ")
+                    cap = config.SUMMARY_SUBTITLE_FALLBACK_CHARS
+                    s = f"\n  字幕节选（尚无AI摘要）：{sub[:cap]}" if sub else ""
                 cov = _image_line(v.get("image_desc"), "封面画面")
                 buf.append(f"- 标题：{v['title']}{d}{s}{cov} 链接：{v['url']}")
         if dynamics:
@@ -75,19 +84,44 @@ def _build_prompt(period_label: str):
         material = material[: config.SUMMARY_INPUT_MAX_CHARS] + "\n...(内容过长已截断)"
 
     system = (
-        "你是一名专业的财经/投资内容分析助手。请基于给定的B站UP主近24小时"
-        "投稿视频与动态素材，生成一份结构清晰的中文投资内容日报（Markdown格式）。"
+        "你是一名投资内容分析师。你的专长是横向对照多个信息源："
+        "从一堆各自独立的观点里找出**共识、分歧与矛盾**，区分硬数据和主观判断，"
+        "而不是把它们逐条复述一遍。"
     )
     user = (
         f"以下是{period_label}截至现在近24小时内，各投资类UP主的新内容素材：\n\n"
         f"{material}\n\n"
-        "请生成一份Markdown日报，要求：\n"
-        "1. 顶部一段整体综述（当日投资观点/情绪概览）；\n"
-        "2. 按【UP主】分小节，每节概括其核心观点、关注标的、风险提示；\n"
-        "3. 每条要点后保留对应来源链接（用Markdown链接）；\n"
-        "4. 素材里的「封面画面」「配图内容」是模型读图得到的画面信息，"
-        "把它当作该条内容的组成部分一起分析（封面上的大字/研报标题常是核心观点）；\n"
-        "5. 语言精炼、客观，不臆造未提供的信息；\n"
+        "请生成一份 Markdown 日报。**你的价值不在于复述，而在于横向对照**："
+        "这些素材是多个 UP 主各自的观点片段，请把它们放在一起比较、"
+        "找出共识与分歧、把硬数据单独拎出来。按以下结构输出：\n"
+        "## 一、今日主线\n"
+        "3~5 句话：今天这些内容共同围绕的核心矛盾或主线是什么，情绪面与资金面各有什么特征。"
+        "必须基于素材，不要写放之四海皆准的套话。\n"
+        "## 二、共识（两个及以上来源支撑）\n"
+        "逐条列出被 2 个以上来源支撑的判断，每条写清：结论 / 支撑依据（含关键数字）/ 来源链接。"
+        "只有一个来源的不要放进本节。若没有这种共识，写明「未出现多来源共识」。\n"
+        "## 三、分歧与对立\n"
+        "找出素材里互相矛盾的观点（同一标的、同一宏观变量或同一时间窗口上的不同判断），"
+        "每条写成「甲认为……（依据、链接）｜乙认为……（依据、链接）｜分歧点在于……」。"
+        "确实找不到分歧就明确写「未出现明显分歧」，不要编造。\n"
+        "## 四、硬数据汇总\n"
+        "把素材中出现的可核对数字整理成表格：| 标的/指标 | 数值 | 来源 | 时间 |。"
+        "只收录素材里明确写出的数字，不要推算、不要补全、不要用记忆里的行情填充。\n"
+        "## 五、今日新增的论据\n"
+        "区分「今天新出现的论据/事件」和「反复讲过的老观点」，只列前者；"
+        "如果新旧难辨，说明依据。\n"
+        "## 六、值得跟踪的变量\n"
+        "列出接下来需要验证的 2~4 个变量，每条补一句："
+        "「若出现 X 信号，则上述判断需推翻/修正」。\n\n"
+        "要求：\n"
+        "1. 每条判断后面跟来源链接（Markdown 链接）；没有来源的判断不要写；\n"
+        "2. 素材里的「封面画面」「配图内容」是模型读图得到的画面信息，"
+        "属于该条内容的组成部分，必须一并分析（封面上的大字、研报标题、"
+        "行情截图里的数字常是最核心的信息）；\n"
+        "3. 严格区分「素材原文观点」与「你的推断」：推断必须写成"
+        "「推断：……（依据 ……）」，不得把推断写成 UP 主的原话；\n"
+        "4. 单一来源、未经证实的说法标注「（单一来源，未证实）」；\n"
+        "5. 语言精炼，不写空话；\n"
         "6. 结尾附一句风险免责声明。"
     )
     return system, user, has_any
