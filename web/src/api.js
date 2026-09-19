@@ -104,3 +104,36 @@ export function getLoginStatus() {
 export function getDiagnostics() {
   return request('/api/diagnostics')
 }
+
+/** GET /api/llm/settings 当前模型配置(密钥只返回掩码,原文永不出服务端) */
+export function getLlmSettings() {
+  return request('/api/llm/settings')
+}
+
+/**
+ * POST /api/llm/settings 保存模型配置(写回 .env 并立刻生效,无需重启)
+ * payload: {provider?, api_key?, base_url?, model?, fallback?, vision_model?, thinking?}
+ * api_key 留空或传掩码 = 不修改现有密钥
+ */
+export function saveLlmSettings(payload) {
+  return request('/api/llm/settings', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+/** POST /api/llm/models 向服务商拉取可用模型名(避免手打错模型名) */
+export function listLlmModels(payload) {
+  return request('/api/llm/models', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+/** POST /api/llm/test 测试连接;vision=true 时额外验证图片识别能力 */
+export function testLlm(payload) {
+  return request('/api/llm/test', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}

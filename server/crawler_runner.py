@@ -26,6 +26,8 @@ from pathlib import Path
 
 import config
 import db
+import llm_client
+import vision
 
 logger = logging.getLogger("crawler")
 
@@ -50,6 +52,8 @@ STATE = {
     "uppers": {},
     # uid -> 最近一轮逐视频 enrich 统计（字幕/摘要成败，排错用）
     "enrich": {},
+    # 最近一轮图片识别统计（封面/配图各识别了几张、失败原因）
+    "vision": {},
 }
 
 # 最近一次登录态检测时间（unix 秒），0=从未检测
@@ -66,6 +70,7 @@ def _load_state():
             STATE["uppers"] = data.get("uppers", {})
             STATE["login_required"] = data.get("login_required", False)
             STATE["enrich"] = data.get("enrich", {})
+            STATE["vision"] = data.get("vision", {})
             _login_checked_ts = int(data.get("login_checked_ts") or 0)
         except Exception:
             pass
@@ -82,6 +87,7 @@ def _save_state():
                     "login_required": STATE["login_required"],
                     "login_checked_ts": _login_checked_ts,
                     "enrich": STATE["enrich"],
+                    "vision": STATE["vision"],
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -664,6 +670,109 @@ def crawl_single(uid: str, do_videos: bool = True, do_dynamics: bool = True):
         _end_crawl()
 
 
+def _run_vision_pass() -> dict:
+    """对最近新增内容做一轮图片识别（视频封面为主，动态配图有才做）。
+
+    为什么放在整轮末尾跑一次、而不是每个 UID 跑一次：
+    配额（VISION_MAX_IMAGES_PER_ROUND）是按轮算的，且这一步是串行的模型调用，
+    逐 UID 跑会把配额摊薄、也让单 UID 的耗时不可控。
+
+    实测背景：B站 feed 里动态配图绝大多数为空（充电专属会被剥离成
+    MAJOR_TYPE_BLOCKED，纯文字贴本来就没图），所以稳定可用的输入是视频封面。
+
+    失败不抛异常：识别失败会写入带前缀的占位文本，避免每轮反复重试同一张坏图。
+    """
+    stats = {
+        "ts": int(time.time()),
+        "skipped": "",
+        "covers": 0,
+        "covers_failed": 0,
+        "dynamics": 0,
+        "dynamics_failed": 0,
+        "images": 0,
+        "errors": [],
+    }
+
+    def _finish():
+        STATE["vision"] = stats
+        _save_state()
+        return stats
+
+    if not config.VISION_ENABLED:
+        stats["skipped"] = "disabled"
+        return _finish()
+    if not llm_client.is_configured():
+        stats["skipped"] = "no_llm_key"
+        return _finish()
+    # 当前服务商/模型不支持读图就别白跑（实测商汤网关传图直接 HTTP 400）
+    import llm_settings
+
+    if llm_settings.vision_capable() is False:
+        stats["skipped"] = "provider_no_vision"
+        return _finish()
+
+    budget = max(0, int(config.VISION_MAX_IMAGES_PER_ROUND or 0))
+    if budget <= 0:
+        stats["skipped"] = "budget_zero"
+        return _finish()
+
+    since = int(time.time()) - max(1, int(config.VISION_LOOKBACK_DAYS)) * 86400
+
+    # ── 1) 视频封面 ──
+    try:
+        rows = db.videos_missing_image_desc(since, limit=budget)
+    except Exception as ex:
+        logger.warning("[vision] 查询待识别视频失败: %s", ex)
+        rows = []
+    for row in rows:
+        if budget <= 0:
+            break
+        try:
+            desc = vision.describe([row["cover"]], kind="cover", context=row["title"])
+            db.set_video_image_desc(row["bvid"], desc)
+            stats["covers"] += 1
+            stats["images"] += 1
+        except Exception as ex:
+            db.set_video_image_desc(row["bvid"], f"{db.IMAGE_FAIL_PREFIX} {ex}")
+            stats["covers_failed"] += 1
+            stats["errors"].append(f"封面 {row['bvid']}: {ex}")
+        budget -= 1
+
+    # ── 2) 动态配图（有配图才做）──
+    if budget > 0:
+        try:
+            drows = db.dynamics_missing_image_desc(since, limit=budget)
+        except Exception as ex:
+            logger.warning("[vision] 查询待识别动态失败: %s", ex)
+            drows = []
+        for row in drows:
+            if budget <= 0:
+                break
+            pics = row.get("pics") or []
+            if not pics:
+                continue
+            use = pics[: min(len(pics), vision.MAX_PICS_PER_ITEM, budget)]
+            try:
+                desc = vision.describe(use, kind="dynamic", context=row.get("text", ""))
+                db.set_dynamic_image_desc(row["dyn_id"], desc)
+                stats["dynamics"] += 1
+                stats["images"] += len(use)
+                budget -= len(use)
+            except Exception as ex:
+                db.set_dynamic_image_desc(row["dyn_id"], f"{db.IMAGE_FAIL_PREFIX} {ex}")
+                stats["dynamics_failed"] += 1
+                stats["errors"].append(f"配图 {row['dyn_id']}: {ex}")
+                budget -= len(use)
+
+    stats["errors"] = stats["errors"][:5]
+    if stats["images"] or stats["covers_failed"] or stats["dynamics_failed"]:
+        logger.info(
+            "[vision] 封面识别 %s 张（失败 %s）、动态配图 %s 条（失败 %s）",
+            stats["covers"], stats["covers_failed"], stats["dynamics"], stats["dynamics_failed"],
+        )
+    return _finish()
+
+
 def run_full_round():
     """Full round: videos + dynamics for all UIDs.
 
@@ -689,6 +798,11 @@ def run_full_round():
                 login_required=bool(r.get("login_required")),
             )
             _sleep_between()
+        # 图片识别：整轮末尾跑一次（配额按轮算；失败不影响爬取结果）
+        try:
+            _run_vision_pass()
+        except Exception as ex:
+            logger.warning("[vision] pass failed: %s", ex)
         return {"ok": True, "detail": result}
 
     # ── Legacy MediaCrawler mode ──
@@ -727,6 +841,10 @@ def run_full_round():
             login_required=bool(r.get("login_required")),
         )
         _sleep_between_dynamics()
+    try:
+        _run_vision_pass()
+    except Exception as ex:
+        logger.warning("[vision] pass failed: %s", ex)
     return {"ok": True, "detail": result}
 
 

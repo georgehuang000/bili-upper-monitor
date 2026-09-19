@@ -49,6 +49,19 @@ export const PERIOD_LABEL = {
 }
 
 /**
+ * 图片识别结果 → 可展示文本。
+ * 后端在识别失败时会写入 "[识别失败] xxx" 占位（防止每轮重试同一张坏图），
+ * 那是运维信息不是内容，这里过滤掉，不要展示给用户、也不要进日报。
+ */
+export const IMAGE_FAIL_PREFIX = '[识别失败]'
+
+export function cleanImageDesc(raw) {
+  const t = (raw || '').trim()
+  if (!t || t.startsWith(IMAGE_FAIL_PREFIX)) return ''
+  return t
+}
+
+/**
  * 抓取错误标签 → 简短人话说明。
  * 后端 last_error 形如 risk_control(-352) / empty_feed(soft_throttle) / cookie_expired,
  * 直接展示给用户看不懂，这里统一翻译成「短标签 + 悬停详情」。

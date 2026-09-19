@@ -22,6 +22,7 @@ import re
 import httpx
 
 import config
+import env_store
 
 logger = logging.getLogger("bili_login")
 
@@ -89,21 +90,8 @@ def _save_env(cookies: dict) -> list:
     pairs = {_COOKIE_TO_ENV[k]: v for k, v in cookies.items() if k in _COOKIE_TO_ENV}
     if not pairs:
         return []
-
-    path = config.ENV_PATH
-    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
-    updated = []
-    for env_key, value in pairs.items():
-        pattern = re.compile(rf"^\s*{re.escape(env_key)}\s*=")
-        for i, line in enumerate(lines):
-            if pattern.match(line):
-                lines[i] = f"{env_key}={value}"
-                break
-        else:
-            lines.append(f"{env_key}={value}")
-        updated.append(env_key)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return updated
+    # 统一走 env_store：扫码登录与模型设置共用同一份"保留注释与顺序"的实现
+    return env_store.save_env(config.ENV_PATH, pairs)
 
 
 def _apply_runtime(cookies: dict):

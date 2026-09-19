@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { getStatus, postCrawl, postSummarize } from '../api'
 import LoginDialog from './LoginDialog'
+import ModelSettingsDialog from './ModelSettingsDialog'
 import { useToast } from './Toast'
 
 const POLL_MS = 30000
@@ -45,6 +46,15 @@ function LoginIcon() {
   )
 }
 
+function GearIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6h.09A1.65 1.65 0 0 0 10.6 3.09V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  )
+}
+
 /** 全局顶栏:导航 + 立即爬取/总结 + 30s 轮询状态指示 */
 export default function TopBar() {
   const toast = useToast()
@@ -52,6 +62,7 @@ export default function TopBar() {
   const [crawlPending, setCrawlPending] = useState(false)
   const [sumPending, setSumPending] = useState(false)
   const [loginOpen, setLoginOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const timerRef = useRef(null)
 
   const poll = async () => {
@@ -138,6 +149,16 @@ export default function TopBar() {
               <span className="chip-text">空闲</span>
             </span>
           )}
+          {status && status.llm_configured === false ? (
+            <button
+              className="status-chip error as-button"
+              onClick={() => setSettingsOpen(true)}
+              title="还没有配置解读模型，总结功能不可用；点这里填写 API Key"
+            >
+              <span className="dot red" />
+              <span className="chip-text">模型未配置</span>
+            </button>
+          ) : null}
           <button
             className={`btn ${status?.login_required ? 'primary' : ''}`}
             onClick={() => setLoginOpen(true)}
@@ -145,6 +166,14 @@ export default function TopBar() {
           >
             <LoginIcon />
             <span className="btn-text">扫码登录</span>
+          </button>
+          <button
+            className={`btn ${status && status.llm_configured === false ? 'primary' : ''}`}
+            onClick={() => setSettingsOpen(true)}
+            title="设置解读用的模型与 API Key（保存后立即生效）"
+          >
+            <GearIcon />
+            <span className="btn-text">模型设置</span>
           </button>
           <button className="btn" onClick={handleCrawl} disabled={crawlPending || crawling}>
             {crawling ? <span className="spinner" /> : <RefreshIcon />}
@@ -163,6 +192,11 @@ export default function TopBar() {
           toast('B站登录成功，登录态已生效')
           poll()
         }}
+      />
+      <ModelSettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={() => poll()} // 保存后立刻刷新状态，清掉「模型未配置」提示
       />
     </header>
   )

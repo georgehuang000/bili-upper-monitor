@@ -19,6 +19,8 @@ import bili_api
 import bili_login
 import crawler_runner
 import diagnostics
+import llm_client
+import llm_settings
 import summarizer
 import scheduler
 
@@ -186,6 +188,9 @@ def get_status():
         "login_required": crawler_runner.STATE.get("login_required", False),
         "login_checked_ts": crawler_runner.login_checked_ts(),
         "last_summary_error": crawler_runner.STATE.get("last_summary_error"),
+        # 模型是否已配置：顶栏用它显示"未配置模型"提醒（不含任何密钥信息）
+        "llm_configured": llm_client.is_configured(),
+        "llm_model": config.LLM_MODEL,
     }
 
 
@@ -233,6 +238,76 @@ async def login_qrcode_poll(key: str = Query(..., min_length=8, max_length=128))
 async def login_status():
     """主动检测登录态是否有效。"""
     return await bili_login.check_status()
+
+
+# --- 模型设置：读取（掩码）/ 保存并热生效 / 拉模型列表 / 测试连接 ---
+
+class LlmSettingsReq(BaseModel):
+    provider: str | None = None
+    api_key: str | None = None
+    base_url: str | None = None
+    model: str | None = None
+    fallback: str | None = None
+    vision_model: str | None = None
+    thinking: str | None = None
+
+
+class LlmTestReq(BaseModel):
+    api_key: str | None = None
+    base_url: str | None = None
+    model: str | None = None
+    vision: bool = False
+    thinking: str | None = None
+
+
+def _resolve_llm_creds(req: LlmTestReq) -> tuple:
+    """表单里没填/填的是掩码时，回落到服务端已保存的值。"""
+    key = (req.api_key or "").strip()
+    if not key or llm_settings.is_masked(key):
+        key = config.LLM_API_KEY or ""
+    base = (req.base_url or "").strip() or config.LLM_BASE_URL
+    return key, base
+
+
+@app.get("/api/llm/settings")
+def llm_settings_get():
+    """当前模型配置。**密钥只返回掩码**，原文永不出服务端。"""
+    return llm_settings.current()
+
+
+@app.post("/api/llm/settings")
+def llm_settings_post(req: LlmSettingsReq):
+    """保存模型配置：写回 .env 并立刻生效（无需重启）。"""
+    try:
+        return llm_settings.save(req.model_dump(exclude_none=True))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logging.exception("保存模型设置失败")
+        raise HTTPException(status_code=500, detail=f"保存失败：{e}")
+
+
+@app.post("/api/llm/models")
+def llm_models(req: LlmTestReq):
+    """向服务商拉取可用模型名，供前端下拉选择（避免手打错模型名）。"""
+    key, base = _resolve_llm_creds(req)
+    return llm_client.list_models(key, base)
+
+
+@app.post("/api/llm/test")
+def llm_test(req: LlmTestReq):
+    """用一次极小调用验证 key / base_url / 模型名是否真的可用。
+
+    vision=True 时额外发一张纯色小图，验证图片识别能力（DeepSeek 只有
+    deepseek-flash 支持；v4-pro 会明确报错）。
+    """
+    key, base = _resolve_llm_creds(req)
+    model = (req.model or "").strip() or (
+        config.VISION_MODEL if req.vision else config.LLM_MODEL
+    )
+    return llm_client.test_connection(
+        key, base, model, vision=req.vision, thinking=req.thinking
+    )
 
 
 # --- serve the built frontend (web/dist) so one process handles everything ---

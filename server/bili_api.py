@@ -683,6 +683,53 @@ def _extract_dynamic_text(item: dict) -> str:
     return text.strip()
 
 
+def _extract_dynamic_pics(item: dict) -> list:
+    """提取动态配图 URL（只取内容图，不含作者装饰）。
+
+    实测路径：图文动态 = modules.module_dynamic.major.opus.pics[].url；
+    旧版 schema = major.draw.items[].src。
+    注意 major 在"充电专属"动态里是 None（B站会把整块内容剥掉），所以必须 or {}。
+
+    刻意排除这些"不是内容图"的字段（实测它们每一条动态都有，混进来会污染识别）：
+    module_author.face / avatar.fallback_layers... / pendant.image / vip.label.* /
+    icon_badge.* / 正文表情 rich_text_nodes[].emoji.icon_url。
+    """
+    out: list = []
+    modules = item.get("modules") or {}
+    md = modules.get("module_dynamic") or {}
+    major = md.get("major") or {}
+
+    opus = major.get("opus") or {}
+    for p in opus.get("pics") or []:
+        u = p.get("url") if isinstance(p, dict) else None
+        if u:
+            out.append(u)
+    if not out:
+        draw = major.get("draw") or {}
+        for d in draw.get("items") or []:
+            u = d.get("src") if isinstance(d, dict) else None
+            if u:
+                out.append(u)
+
+    orig = item.get("orig")
+    if orig:
+        for u in _extract_dynamic_pics(orig):
+            if u not in out:
+                out.append(u)
+
+    # 统一 https（feed 里 cover/某些 URL 是 http://），去重保序
+    seen, clean = set(), []
+    for u in out:
+        if u.startswith("//"):
+            u = "https:" + u
+        elif u.startswith("http://"):
+            u = "https://" + u[7:]
+        if u not in seen:
+            seen.add(u)
+            clean.append(u)
+    return clean
+
+
 def _feed_dyn_row(item: dict, uid: str) -> Optional[dict]:
     """从 feed item 提取动态行。"""
     dyn_id = item.get("id_str", "")
@@ -695,6 +742,9 @@ def _feed_dyn_row(item: dict, uid: str) -> Optional[dict]:
         "text": _extract_dynamic_text(item),
         "pub_ts": int(item.get("modules", {}).get("module_author", {}).get("pub_ts", 0)),
         "url": f"https://t.bilibili.com/{dyn_id}",
+        # 实测：feed 里这个列表绝大多数时候是空的（纯文字贴 / 充电专属被剥离），
+        # 解析它零成本，将来订阅到发公开图文的 UP 就能自动用上
+        "pics": _extract_dynamic_pics(item),
     }
 
 

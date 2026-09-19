@@ -48,7 +48,35 @@ def _env_cookie_presence() -> dict:
         "BILI_BUVID3": bool(config.BILI_BUVID3),
         "BILI_BUVID4": bool(config.BILI_BUVID4),
         "BILI_DEDEUSERID": bool(config.BILI_DEDEUSERID),
-        "sensetime_key": bool(config.SENSETIME_KEY),
+    }
+
+
+def _llm_snapshot() -> dict:
+    """模型配置快照。只给掩码与来源键名，**绝不输出密钥原文**。"""
+    import llm_settings
+
+    cur = llm_settings.current()
+    return {
+        "configured": cur["configured"],
+        "provider": cur["provider"],
+        "base_url": cur["base_url"],
+        "model": cur["model"],
+        "fallback": cur["fallback"],
+        "vision_model": cur["vision_model"],
+        "thinking": cur["thinking"],
+        "vision_enabled": cur["vision_enabled"],
+        "vision_max_images": cur["vision_max_images"],
+        "key_masked": cur["key_masked"],
+        "key_source": cur["key_source"],
+        "hint": (
+            "模型未配置：请在网页顶栏点「模型设置」填入 API Key"
+            if not cur["configured"]
+            else (
+                "模型名可能不支持图片识别（DeepSeek 只有 deepseek-flash 支持）"
+                if cur["vision_model"] and "pro" in cur["vision_model"]
+                else "模型配置正常"
+            )
+        ),
     }
 
 
@@ -70,6 +98,12 @@ def snapshot() -> dict:
             ),
         },
         "env_cookies": _env_cookie_presence(),
+        "llm": _llm_snapshot(),
+        "vision": {
+            "enabled": bool(config.VISION_ENABLED),
+            # 最近一轮图片识别的统计（封面识别了几张、失败几条、跳过原因）
+            "last_pass": crawler_runner.STATE.get("vision") or {},
+        },
         "crawl": {
             "crawling": crawler_runner.is_crawling(),
             "summarizing": summarizer.is_summarizing(),

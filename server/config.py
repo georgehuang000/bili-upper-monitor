@@ -2,8 +2,8 @@
 """Configuration for the server backend.
 
 Loads the workspace-root .env (../.env relative to this file) and exposes
-constants used across the app. The secret `sensetime_key` is read but never
-printed or logged.
+constants used across the app. The LLM secret (`LLM_API_KEY`, legacy name
+`sensetime_key`) is read here but never printed or logged.
 """
 import os
 from pathlib import Path
@@ -46,12 +46,40 @@ def _get_int(key: str, default: int) -> int:
         return default
 
 
-# --- LLM gateway ---
+# --- LLM（OpenAI 兼容协议，默认指向 DeepSeek 官方）---
+# 密钥读取优先级：LLM_API_KEY（网页「模型设置」写入的新键名）
+#                 > sensetime_key（历史键名，保留兼容，便于一键回退到旧网关）
 # The secret is read here but MUST NOT be printed/logged anywhere.
-SENSETIME_KEY = _get("sensetime_key")
-LLM_BASE_URL = _get("LLM_BASE_URL", "https://api.senseaudio.cn/v1")
-LLM_MODEL = _get("LLM_MODEL", "deepseek-v4-pro")
-LLM_MODEL_FALLBACK = _get("LLM_MODEL_FALLBACK", "deepseek-v4-flash")
+LLM_API_KEY = _get("LLM_API_KEY") or _get("sensetime_key")
+# 兼容别名：老代码/诊断里用的是这个名字
+SENSETIME_KEY = LLM_API_KEY
+
+LLM_BASE_URL = _get("LLM_BASE_URL", "https://api.deepseek.com/v1")
+# deepseek-flash = DeepSeek-V4.1-Flash：1M 上下文、384K 输出、支持图片识别、最便宜。
+# 注意 `deepseek-v4-flash` 是已退役的旧名（仍被接受，但由 V4.1-Flash 承接）。
+LLM_MODEL = _get("LLM_MODEL", "deepseek-flash")
+# 兜底模型：v4-pro 推理更强但**不支持 vision**，所以图片任务只会用 VISION_MODEL。
+LLM_MODEL_FALLBACK = _get("LLM_MODEL_FALLBACK", "deepseek-v4-pro")
+# 图片识别用的模型。默认跟随 LLM_MODEL（在 DeepSeek 官方就是 deepseek-flash）。
+VISION_MODEL = _get("VISION_MODEL") or LLM_MODEL
+# 思考模式：disabled（默认）/ low / high / max
+# DeepSeek 的思考模式**默认开启且 effort=high**，对"把字幕压成摘要"这类任务
+# 又慢又贵（输出 token 计费），因此这里默认关闭，需要深度推理时再调高。
+LLM_THINKING = _get("LLM_THINKING", "disabled")
+
+# --- 图片识别（vision）---
+# 是否对新增内容里的图片做识别。默认开；没有可用 key 时会自动跳过，不会报错。
+VISION_ENABLED = _get("VISION_ENABLED", "true").lower() in ("1", "true", "yes")
+# 每轮最多识别几张图。图片成本很低（单图最多约 1024 tokens，约 ¥0.001），
+# 但耗时是串行的，所以要有个闸门，避免一轮里堆几百张把爬取拖住。
+VISION_MAX_IMAGES_PER_ROUND = _get_int("VISION_MAX_IMAGES_PER_ROUND", 20)
+# 送图时往回追溯多少天内的内容（只处理新内容，不回头重刷历史）
+VISION_LOOKBACK_DAYS = _get_int("VISION_LOOKBACK_DAYS", 7)
+# detail 档位：留空=不发送该参数（非 DeepSeek 网关更安全）；
+# DeepSeek 官方会自动用 low（长边压到 512px，省 token）
+VISION_DETAIL = _get("VISION_DETAIL", "").strip()
+# 单次图片识别请求的超时（秒）：读图比纯文本慢
+VISION_TIMEOUT = _get_int("VISION_TIMEOUT", 90)
 
 # --- UP master list (uid -> name) ---
 # 仅作首次启动的引导种子：init_db 时把这里(或 .env UP_UIDS)的 UID 写入

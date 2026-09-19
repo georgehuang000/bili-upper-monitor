@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { fmtTime, fmtPlay } from '../utils'
+import { fmtTime, fmtPlay, cleanImageDesc } from '../utils'
 import Placeholder from './Placeholder'
 
 function VideoCard({ video, index }) {
   const [coverFailed, setCoverFailed] = useState(false)
+  const imgDesc = cleanImageDesc(video.image_desc)
   return (
     <div
       className="video-card"
@@ -31,6 +32,12 @@ function VideoCard({ video, index }) {
       <div className="video-body">
         <div className="video-title">{video.title}</div>
         {video.summary && <div className="video-summary">{video.summary}</div>}
+        {imgDesc && (
+          <div className="img-desc" title={imgDesc}>
+            <span className="img-desc-tag">封面识别</span>
+            {imgDesc}
+          </div>
+        )}
         <div className="video-meta">
           <span>{fmtTime(video.pub_ts)}</span>
           <span>{video.bvid}</span>

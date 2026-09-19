@@ -9,6 +9,7 @@ Tables:
 
 All writes for videos/dynamics use UPSERT for incremental dedup.
 """
+import json
 import time
 from contextlib import contextmanager
 from typing import Iterable, Optional
@@ -61,6 +62,7 @@ class Video(Base):
     url = Column(Text)
     subtitle = Column(Text)  # B站字幕全文（AI字幕/CC字幕）
     summary = Column(Text)   # LLM 生成的单视频摘要
+    image_desc = Column(Text)  # 封面图识别结果（vision 模型读图后的文字描述）
 
 
 class Dynamic(Base):
@@ -71,6 +73,10 @@ class Dynamic(Base):
     text = Column(Text)
     pub_ts = Column(Integer, index=True)
     url = Column(Text)
+    # 动态配图 URL 列表（JSON 数组）。实测：feed 里图文动态常被剥离（充电专属）
+    # 或本身是纯文字贴，所以多数时候是 NULL/空数组。
+    pics = Column(Text)
+    image_desc = Column(Text)  # 配图识别结果
 
 
 class Summary(Base):
@@ -81,6 +87,26 @@ class Summary(Base):
     content = Column(Text)
     model = Column(String)
     created_ts = Column(Integer)
+
+
+def _dump_pics(urls) -> Optional[str]:
+    """配图 URL 列表 -> JSON 字符串。空列表存 NULL，"有没有图"一眼可判。"""
+    if not urls:
+        return None
+    clean = [u for u in urls if isinstance(u, str) and u]
+    return json.dumps(clean, ensure_ascii=False) if clean else None
+
+
+def _load_pics(raw: Optional[str]) -> list:
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [u for u in data if isinstance(u, str) and u]
 
 
 @contextmanager
@@ -106,8 +132,13 @@ def _migrate_columns():
     """Lightweight migration: ADD COLUMN for tables created before a column
     existed (create_all won't alter existing tables)."""
     wanted = {
-        "videos": [("subtitle", "TEXT"), ("summary", "TEXT")],
+        "videos": [
+            ("subtitle", "TEXT"),
+            ("summary", "TEXT"),
+            ("image_desc", "TEXT"),
+        ],
         "uppers": [("subscribed", "INTEGER NOT NULL DEFAULT 1")],
+        "dynamics": [("pics", "TEXT"), ("image_desc", "TEXT")],
     }
     with engine.begin() as conn:
         for table, cols in wanted.items():
@@ -222,6 +253,11 @@ def upsert_dynamics(rows: Iterable[dict]) -> int:
     if not rows:
         return 0
     n = 0
+    # 配图在调用方是 list，落库前转成 JSON 字符串（空列表存 NULL）
+    rows = [
+        {**r, "pics": _dump_pics(r.get("pics")) if isinstance(r.get("pics"), (list, tuple)) else r.get("pics")}
+        for r in rows
+    ]
     with session_scope() as s:
         for r in rows:
             stmt = sqlite_insert(Dynamic).values(**r)
@@ -232,6 +268,9 @@ def upsert_dynamics(rows: Iterable[dict]) -> int:
                     "text": stmt.excluded.text,
                     "pub_ts": stmt.excluded.pub_ts,
                     "url": stmt.excluded.url,
+                    # pics 会随动态更新；image_desc 故意不在这里：
+                    # 重新爬取不能把已经识别好的结果覆盖成 NULL
+                    "pics": stmt.excluded.pics,
                 },
             )
             s.execute(stmt)
@@ -270,6 +309,83 @@ def update_video_summary(bvid: str, summary: str):
         v = s.get(Video, bvid)
         if v is not None:
             v.summary = summary
+
+
+# 图片识别失败时写进 image_desc 的前缀。带上它就不会被当成"还没识别过"而每轮
+# 重试（省钱），展示层/日报用这个前缀把它过滤掉。
+IMAGE_FAIL_PREFIX = "[识别失败]"
+
+
+def set_video_image_desc(bvid: str, text: str):
+    with session_scope() as s:
+        v = s.get(Video, bvid)
+        if v is not None:
+            v.image_desc = text
+
+
+def set_dynamic_image_desc(dyn_id: str, text: str):
+    with session_scope() as s:
+        d = s.get(Dynamic, dyn_id)
+        if d is not None:
+            d.image_desc = text
+
+
+def videos_missing_image_desc(since_ts: int, limit: int = 20) -> list:
+    """近 since_ts 内、有封面但还没做过图片识别的视频（按发布时间倒序，跨所有 UP）。
+
+    只挑 image_desc 为 NULL 的：失败时我们会写入带前缀的占位文本，
+    所以识别失败的行不会被反复重试，也就不会把配额耗在同一个坏图上。
+    """
+    with session_scope() as s:
+        rows = (
+            s.execute(
+                select(Video)
+                .where(
+                    Video.pub_ts >= since_ts,
+                    Video.cover.isnot(None),
+                    Video.cover != "",
+                    Video.image_desc.is_(None),
+                )
+                .order_by(Video.pub_ts.desc())
+                .limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            {"bvid": r.bvid, "uid": r.uid, "title": r.title or "",
+             "cover": r.cover, "pub_ts": r.pub_ts}
+            for r in rows
+        ]
+
+
+def dynamics_missing_image_desc(since_ts: int, limit: int = 20) -> list:
+    """近 since_ts 内、确实带配图且还没识别过的动态。
+
+    pics 在 SQL 里就过滤掉 NULL/空数组，避免全表扫完再在 Python 里筛。
+    """
+    with session_scope() as s:
+        rows = (
+            s.execute(
+                select(Dynamic)
+                .where(
+                    Dynamic.pub_ts >= since_ts,
+                    Dynamic.image_desc.is_(None),
+                    Dynamic.pics.isnot(None),
+                    Dynamic.pics != "",
+                    Dynamic.pics != "[]",
+                )
+                .order_by(Dynamic.pub_ts.desc())
+                .limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            {"dyn_id": r.dyn_id, "uid": r.uid, "text": r.text or "",
+             "pics": _load_pics(r.pics), "pub_ts": r.pub_ts}
+            for r in rows
+        ]
 
 
 def list_videos_missing_summary_since(since_ts: int) -> list:
@@ -387,6 +503,7 @@ def list_videos(uid: str, limit: int = 30, offset: int = 0) -> list:
                 "url": r.url,
                 "desc": r.desc,
                 "summary": r.summary,
+                "image_desc": r.image_desc,
             }
             for r in rows
         ]
@@ -413,6 +530,8 @@ def list_dynamics(uid: str, limit: int = 30, offset: int = 0) -> list:
                 "text": r.text,
                 "pub_ts": r.pub_ts,
                 "url": r.url,
+                "pics": _load_pics(r.pics),
+                "image_desc": r.image_desc,
             }
             for r in rows
         ]
@@ -452,7 +571,8 @@ def recent_videos_since(uid: str, since_ts: int) -> list:
         )
         return [
             {"bvid": r.bvid, "title": r.title, "desc": r.desc,
-             "summary": r.summary, "pub_ts": r.pub_ts, "url": r.url}
+             "summary": r.summary, "pub_ts": r.pub_ts, "url": r.url,
+             "image_desc": r.image_desc}
             for r in rows
         ]
 
@@ -470,6 +590,7 @@ def recent_dynamics_since(uid: str, since_ts: int) -> list:
         )
         return [
             {"dyn_id": r.dyn_id, "type": r.type, "text": r.text,
-             "pub_ts": r.pub_ts, "url": r.url}
+             "pub_ts": r.pub_ts, "url": r.url,
+             "pics": _load_pics(r.pics), "image_desc": r.image_desc}
             for r in rows
         ]

@@ -1,13 +1,16 @@
 import { useState } from 'react'
-import { fmtTime } from '../utils'
+import { fmtTime, cleanImageDesc } from '../utils'
 import Placeholder from './Placeholder'
 
 const TYPE_LABEL = { video: '投稿', text: '动态', forward: '转发' }
 const COLLAPSE_LEN = 120 // 超过该字数默认折叠
+const MAX_SHOWN_PICS = 4 // 配图最多展示几张（多图动态只预览前几张）
 
 function DynCard({ dyn, index }) {
   const [expanded, setExpanded] = useState(false)
   const long = (dyn.text || '').length > COLLAPSE_LEN
+  const imgDesc = cleanImageDesc(dyn.image_desc)
+  const pics = (dyn.pics || []).slice(0, MAX_SHOWN_PICS)
 
   return (
     <div className="dyn-card" style={{ animationDelay: `${Math.min(index, 12) * 0.04}s` }}>
@@ -29,6 +32,27 @@ function DynCard({ dyn, index }) {
         <button className="dyn-toggle" onClick={() => setExpanded((v) => !v)}>
           {expanded ? '收起 ▲' : '展开全文 ▼'}
         </button>
+      )}
+      {pics.length > 0 && (
+        <div className="dyn-pics">
+          {pics.map((u) => (
+            <img
+              key={u}
+              className="dyn-pic"
+              src={u}
+              alt="动态配图"
+              loading="lazy"
+              referrerPolicy="no-referrer"
+              onClick={() => window.open(u, '_blank', 'noopener')}
+            />
+          ))}
+        </div>
+      )}
+      {imgDesc && (
+        <div className="img-desc" title={imgDesc}>
+          <span className="img-desc-tag">配图识别</span>
+          {imgDesc}
+        </div>
       )}
     </div>
   )
