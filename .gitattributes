@@ -19,6 +19,8 @@
 
 *.bat      text eol=crlf
 *.cmd      text eol=crlf
+# 这两个 .ps1 是 Windows 本地启停脚本，钉住 CRLF 让检出结果确定
+*.ps1      text eol=crlf
 
 # 二进制，别做任何转换
 *.db       binary
