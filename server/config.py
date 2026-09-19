@@ -2,8 +2,8 @@
 """Configuration for the server backend.
 
 Loads the workspace-root .env (../.env relative to this file) and exposes
-constants used across the app. The LLM secret (`LLM_API_KEY`, legacy name
-`sensetime_key`) is read here but never printed or logged.
+constants used across the app. The LLM secret (`LLM_API_KEY`, or the
+equivalent manual name `deepseek_key`) is read here but never printed or logged.
 """
 import os
 from pathlib import Path
@@ -47,10 +47,11 @@ def _get_int(key: str, default: int) -> int:
 
 
 # --- LLM（OpenAI 兼容协议，默认指向 DeepSeek 官方）---
-# 密钥读取优先级：LLM_API_KEY（网页「模型设置」写入的新键名）
-#                 > sensetime_key（历史键名，保留兼容，便于一键回退到旧网关）
+# 密钥读取优先级：LLM_API_KEY（网页「模型设置」写入的键名）
+#                 > deepseek_key（手动写在 .env 里的键名）
+# 两者都支持，先命中的生效。
 # The secret is read here but MUST NOT be printed/logged anywhere.
-LLM_API_KEY = _get("LLM_API_KEY") or _get("sensetime_key")
+LLM_API_KEY = _get("LLM_API_KEY") or _get("deepseek_key")
 # 兼容别名：老代码/诊断里用的是这个名字
 SENSETIME_KEY = LLM_API_KEY
 

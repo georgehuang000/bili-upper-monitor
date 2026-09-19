@@ -7,8 +7,8 @@
   密钥栏为空或仍是掩码，都表示"不改密钥"。
 - **热生效**。保存后立刻 setattr 到 ``config`` 并丢弃 ``llm_client`` 缓存的
   客户端，无需重启服务。
-- **可回退**。旧键 ``sensetime_key`` 一律不动，只要把 LLM_API_KEY 删掉就能
-  回到原来的网关配置。
+- **可回退**。保存只改 ``LLM_API_KEY`` 等键，不动文件里的其它内容；把
+  ``LLM_API_KEY`` 删掉并改回 ``LLM_BASE_URL`` 即可回到上一套配置。
 - 写入 .env 的键走白名单，避免前端塞入任意键名。
 """
 from __future__ import annotations
@@ -29,16 +29,6 @@ PROVIDERS = {
         "note": "deepseek-flash = V4.1-Flash，1M 上下文，支持图片识别；v4-pro 推理更强但不支持图片。",
         "key_url": "https://platform.deepseek.com/api_keys",
     },
-    "senseaudio": {
-        "key": "senseaudio",
-        "label": "商汤 SenseAudio 网关（原配置）",
-        "base_url": "https://api.senseaudio.cn/v1",
-        "model": "deepseek-v4-flash-0731",
-        "fallback": "deepseek-v4-flash",
-        "vision": False,
-        "note": "切换回原网关需要重新填它自己的 key（与 DeepSeek 官方 key 不通用）。",
-        "key_url": "https://docs.senseaudio.cn/api-reference/introduction",
-    },
     "custom": {
         "key": "custom",
         "label": "自定义（OpenAI 兼容）",
@@ -51,7 +41,7 @@ PROVIDERS = {
     },
 }
 
-PROVIDER_ORDER = ["deepseek", "senseaudio", "custom"]
+PROVIDER_ORDER = ["deepseek", "custom"]
 
 # 允许写入 .env 的键
 WRITABLE_KEYS = (
@@ -72,8 +62,8 @@ _INT_KEYS = ("VISION_MAX_IMAGES_PER_ROUND",)
 
 THINKING_VALUES = ("disabled", "low", "high", "max")
 
-# 密钥来源：优先新键名，其次历史键名
-_KEY_SOURCES = ("LLM_API_KEY", "sensetime_key")
+# 密钥来源：优先网页写的键名，其次手动写的 deepseek_key
+_KEY_SOURCES = ("LLM_API_KEY", "deepseek_key")
 
 
 def mask(value: str) -> str:
@@ -96,8 +86,6 @@ def detect_provider(base_url: str) -> str:
     b = (base_url or "").strip().lower().rstrip("/")
     if "deepseek.com" in b:
         return "deepseek"
-    if "senseaudio" in b or "sensetime" in b:
-        return "senseaudio"
     return "custom"
 
 
@@ -117,8 +105,8 @@ def vision_capable():
     依据两点：服务商预设里的 vision 标记，以及 DeepSeek 的已知事实
     （v4-pro 系列明确不支持图片输入，传图会被 400 拒绝）。
 
-    实测：商汤网关（deepseek-v4-flash-0731）传图会返回 HTTP 400
-    「参数不被支持」，所以这里直接拦掉，避免每轮白跑一堆失败请求。
+    经验：把图片发给不支持读图的网关会直接 HTTP 400「参数不被支持」，
+    所以判定为 False 时直接拦掉，避免每轮白跑一堆失败请求。
     """
     base = (config.LLM_BASE_URL or "").lower()
     preset = PROVIDERS.get(detect_provider(base)) or {}

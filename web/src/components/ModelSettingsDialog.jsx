@@ -432,8 +432,9 @@ export default function ModelSettingsDialog({ open, onClose, onSaved }) {
                 </div>
                 {visionEnabled && meta?.vision_capable === false ? (
                   <div className="field-hint vision-warn">
-                    ⚠ 当前服务商/模型不支持读图，开了也不会生效：实测商汤网关传图会返回
-                    HTTP 400。请切到 DeepSeek 官方（deepseek-flash）并点「测试图片识别」确认。
+                    ⚠ 当前服务商/模型不支持读图，开了也不会生效：不支持读图的网关
+                    收到图片会直接返回 HTTP 400。请切到 DeepSeek 官方（deepseek-flash）
+                    并点「测试图片识别」确认。
                   </div>
                 ) : null}
               </div>
@@ -459,7 +460,7 @@ export default function ModelSettingsDialog({ open, onClose, onSaved }) {
 
               {meta?.env_path ? (
                 <div className="field-hint llm-env-path">
-                  保存后写入：{meta.env_path}（旧键 sensetime_key 不会被动，可随时改回原网关）
+                  保存后写入：{meta.env_path}（密钥只留在服务器本地，不进 git）
                 </div>
               ) : null}
             </>

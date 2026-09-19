@@ -121,21 +121,40 @@ sqlite3 server/data.db 'select count(*) from videos;'   # 数据量
 - 应用日志级别由 `.env` 的 `LOG_LEVEL`（默认 `INFO`）控制；此前未配置 logging 导致 `logger.info`
   全部丢失（journalctl 里只有 warning），现已修复。
 - 必须单进程运行（service 文件默认如此）：爬取互斥锁、APScheduler 都在进程内存里，多 worker 会重复爬取。
-- 日报生成于每轮爬取之后；换 LLM key 只需改 `.env` 的 `sensetime_key` 后 `systemctl restart`。
+- 日报生成于每轮爬取之后；换 LLM key 推荐用网页顶栏的「模型设置」（写回 `.env` 并热生效，
+  无需重启），手动改 `.env` 后则需要 `systemctl restart`。
 
 ## .env 配置项（工作区根目录 `.env`）
 
+> LLM 相关配置推荐在网页顶栏点「模型设置」修改：选服务商预设、粘贴 Key、点「测试连接」，
+> 保存后自动写回本文件并**即时生效**（无需重启）。下表供手动配置或排错时参考。
+
 | 配置项 | 说明 |
 | --- | --- |
-| `sensetime_key` | SenseTime LLM 网关的 API Key（**保密，勿提交/打印**） |
-| `LLM_BASE_URL` | LLM 网关地址，默认 `https://api.senseaudio.cn/v1` |
-| `LLM_MODEL` | 主模型，默认 `deepseek-v4-pro` |
-| `LLM_MODEL_FALLBACK` | 回退模型，默认 `deepseek-v4-flash` |
+| `LLM_API_KEY` | DeepSeek 官方 API Key（**保密，勿提交/打印**）；网页端保存时写这个键 |
+| `deepseek_key` | 等价的手动键名（优先级低于 `LLM_API_KEY`），不习惯用上面那个就写这个 |
+| `LLM_BASE_URL` | LLM 接口地址，默认 `https://api.deepseek.com/v1` |
+| `LLM_MODEL` | 主模型，默认 `deepseek-flash`（= DeepSeek-V4.1-Flash，支持图片识别） |
+| `LLM_MODEL_FALLBACK` | 回退模型，默认 `deepseek-v4-pro`（注意它**不支持**图片识别） |
+| `VISION_MODEL` | 图片识别用模型，留空则跟随 `LLM_MODEL` |
+| `LLM_THINKING` | 思考模式：`disabled`（默认）/ `low` / `high` / `max` |
+| `VISION_ENABLED` | 是否识别封面/配图，默认 `true`（需服务商支持读图） |
+| `VISION_MAX_IMAGES_PER_ROUND` | 每轮最多识别几张图，默认 `20` |
 | `UP_UIDS` | 逗号分隔的 UP 主 UID 列表（**仅首次启动引导初始化订阅名单用**，之后的增删请在网页端「监控名单」操作） |
 | `CRAWL_MORNING` / `CRAWL_EVENING` | 定时任务时间，默认 `08:00` / `18:00` |
 | `CRAWL_SLEEP_MIN` / `CRAWL_SLEEP_MAX` | 每轮爬取中相邻 UID 的请求间隔秒数，默认 `12` / `20`；风控频繁时可调大 |
 | `LOG_LEVEL` | 应用日志级别，默认 `INFO`（排错时可改 `DEBUG`） |
 | `AUTO_CRAWL_ON_START` | 后端启动时是否立即触发一轮爬取，默认 `false` |
+
+## 图片识别（读图）
+
+- 视频封面与动态配图会被送去多模态模型读一遍，抽出的文字（板块名、研报标题、数据）
+  展示在卡片上，并作为素材喂给日报。整轮爬取末尾跑一次，每轮最多 `VISION_MAX_IMAGES_PER_ROUND` 张。
+- 需要服务商支持读图：DeepSeek 官方只有 `deepseek-flash` 支持（`deepseek-v4-pro` 不支持）。
+  检测到不支持时会整段跳过，不会白跑失败请求；网页「模型设置」里也有「测试图片识别」可自测。
+- **实测结论**：B站 feed 里的动态配图绝大多数拿不到 —— 图文动态要么是充电专属
+  （B站把内容剥成 `MAJOR_TYPE_BLOCKED`），要么本来就是纯文字贴（61 条样本 `opus.pics` 非空 0 条），
+  所以该功能实际主要作用在**视频封面**上。动态配图的解析与识别已实现，订阅到发公开图文的 UP 时自动生效。
 
 ## 订阅管理（网页端增删 UP 主）
 

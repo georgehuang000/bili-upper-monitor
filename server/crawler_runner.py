@@ -704,7 +704,7 @@ def _run_vision_pass() -> dict:
     if not llm_client.is_configured():
         stats["skipped"] = "no_llm_key"
         return _finish()
-    # 当前服务商/模型不支持读图就别白跑（实测商汤网关传图直接 HTTP 400）
+    # 当前服务商/模型不支持读图就别白跑（不支持读图的网关传图会直接 400）
     import llm_settings
 
     if llm_settings.vision_capable() is False:
