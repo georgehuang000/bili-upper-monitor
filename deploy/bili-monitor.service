@@ -1,0 +1,28 @@
+# systemd 服务单元：B站UP主监控（后端 + 定时爬取 + 日报 + 静态前端，单进程单端口）
+#
+# 安装：
+#   1. 把整个项目上传到 /opt/bili-monitor（路径不同则修改下方 WorkingDirectory/ExecStart）
+#   2. sudo cp deploy/bili-monitor.service /etc/systemd/system/
+#      sudo systemctl daemon-reload
+#      sudo systemctl enable --now bili-monitor
+#   查看日志：journalctl -u bili-monitor -f
+#
+# 注意：必须单进程运行（不要加 --workers），爬取互斥锁与定时器都在进程内存里。
+
+[Unit]
+Description=Bili UP Monitor (FastAPI + crawler + daily report)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/bili-monitor/server
+ExecStart=/opt/bili-monitor/server/.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 9000
+# 崩溃自动拉起；开机自启由 [Install] 的 enable 控制
+Restart=always
+RestartSec=10
+# 8:00/18:00 定时任务依赖正确时区
+Environment=TZ=Asia/Shanghai
+
+[Install]
+WantedBy=multi-user.target

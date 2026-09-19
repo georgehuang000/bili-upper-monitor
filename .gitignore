@@ -1,0 +1,51 @@
+# ───────── 依赖与运行时产物 ─────────
+server/.venv/
+**/.venv/
+web/node_modules/
+__pycache__/
+*.pyc
+*.pyo
+
+# ───────── 密钥与本地配置（绝对不能提交）─────────
+.env
+.env.*
+!.env.example
+
+# ───────── 运行时数据与状态（由程序自动生成）─────────
+server/data.db
+server/data.db-wal
+server/data.db-shm
+server/crawl_state.json
+server/tmp/
+logs/
+*.log
+
+# ───────── 第三方克隆：含 39MB 浏览器登录 profile，且纯 API 模式用不到 ─────────
+# 需要时自行克隆（README「风控与重新登录 SOP」方式 C）：
+#   git clone https://github.com/NanmiCoder/MediaCrawler.git external/MediaCrawler
+external/
+browser_data/
+
+# ───────── AI 工具生成的缓存 ─────────
+.qoder/
+
+# ───────── 临时实验目录（内嵌 .venv 约 72MB，且 export_cookies.py 会写入真实 Cookie）─────────
+tmp_biliapi/
+# 防御性规则：任何位置出现的 cookie 文件都不得进仓库
+cookies*.json
+*cookie*.json
+*bili_cookie*
+
+# ───────── 临时调试脚本与产物（本项目的临时探针命名习惯）─────────
+_probe_*
+_verify_*
+_tmp_*
+_test_*
+diag_*
+
+# ───────── Windows / 编辑器杂物 ─────────
+Thumbs.db
+desktop.ini
+.DS_Store
+.idea/
+.vscode/

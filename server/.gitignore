@@ -1,0 +1,6 @@
+.venv/
+data.db
+crawl_state.json
+tmp/
+__pycache__/
+*.pyc
